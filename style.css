@@ -1,0 +1,34 @@
+body {
+  background: #1e1e1e;
+  color: #33ff33;
+  font-family: monospace;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+}
+
+.terminal {
+  padding: 1rem;
+}
+
+.input-line {
+  display: flex;
+  align-items: center;
+}
+
+.prompt {
+  margin-right: 0.5rem;
+}
+
+input {
+  background: none;
+  border: none;
+  color: inherit;
+  outline: none;
+  font: inherit;
+  width: 100%;
+}
+
+#output div {
+  margin: 0.2rem 0;
+}
