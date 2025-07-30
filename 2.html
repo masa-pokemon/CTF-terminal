@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft ブロックエミュレーター (3D表示)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+            background-color: #f0f0f0;
+            overflow: hidden; /* スクロールバーが出ないように */
+        }
+
+        #controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            z-index: 10; /* 3D空間の上に表示 */
+            position: relative;
+        }
+
+        #controls label {
+            margin-right: 5px;
+            font-weight: bold;
+        }
+
+        #controls select,
+        #controls input[type="number"] {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        #y-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #viewport {
+            width: 600px; /* 3Dビューポートの幅 */
+            height: 400px; /* 3Dビューポートの高さ */
+            border: 2px solid #333;
+            background-color: #add8e6; /* 空の色 */
+            perspective: 800px; /* 奥行き感 */
+            overflow: hidden;
+            position: relative;
+            cursor: grab; /* ドラッグ可能なカーソル */
+            margin-top: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        #world {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            transform-style: preserve-3d; /* 子要素も3D空間でレンダリング */
+            transform: rotateX(-30deg) rotateY(45deg); /* 初期視点 */
+            /* transform-origin: 50% 50% 0; /* 回転の中心を世界の中心に */
+            /* Worldの原点を中央に移動するためのオフセット */
+            left: 50%;
+            top: 50%;
+        }
+
+        .block-container {
+            position: absolute;
+            width: var(--block-size);
+            height: var(--block-size);
+            transform-style: preserve-3d;
+            transform: translate3d(var(--x), var(--y), var(--z));
+            /* 背景は透明にするか、表示されない面は描画しない */
+        }
+
+        .block-face {
+            position: absolute;
+            width: var(--block-size);
+            height: var(--block-size);
+            background-color: gray; /* デフォルトの色 */
+            border: 1px solid rgba(0,0,0,0.3);
+            box-sizing: border-box;
+            opacity: 1; /* 後で非表示の面は調整 */
+            /* 背景画像やテクスチャをここに設定 */
+            image-rendering: pixelated; /* ピクセルアート表示 */
+        }
+
+        /* 各面の変換 */
+        .front { transform: rotateY(0deg) translateZ(calc(var(--block-size) / 2)); }
+        .back { transform: rotateY(180deg) translateZ(calc(var(--block-size) / 2)); }
+        .right { transform: rotateY(90deg) translateZ(calc(var(--block-size) / 2)); }
+        .left { transform: rotateY(-90deg) translateZ(calc(var(--block-size) / 2)); }
+        .top { transform: rotateX(90deg) translateZ(calc(var(--block-size) / 2)); }
+        .bottom { transform: rotateX(-90deg) translateZ(calc(var(--block-size) / 2)); }
+
+        /* ブロックの種類に応じた色（暫定） */
+        .dirt .block-face { background-color: #8B4513; }
+        .grass_block .top { background-color: #7CFC00; }
+        .grass_block .side { background-color: #8B4513; } /* 側面は土 */
+        .grass_block .front, .grass_block .back, .grass_block .left, .grass_block .right { background-color: #8B4513; }
+        .stone .block-face { background-color: #808080; }
+        .oak_planks .block-face { background-color: #CD853F; }
+        .air { display: none; } /* 空気ブロックは非表示 */
+
+        /* グラスブロックの側面は異なる色に */
+        .grass_block .block-face:not(.top) {
+            background-color: #8B4513; /* 土の色 */
+        }
+
+        #commands {
+            margin-top: 20px;
+            width: 80%;
+            max-width: 600px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        #commands h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        #fill-command {
+            width: calc(100% - 20px);
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #e9e9e9;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 50px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin-top: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>Minecraft ブロックエミュレーター (3D)</h1>
+
+    <div id="controls">
+        <label for="block-type">ブロックを選択:</label>
+        <select id="block-type">
+            <option value="air">空気 (消去)</option>
+            <option value="dirt">土</option>
+            <option value="grass_block">草ブロック</option>
+            <option value="stone">石</option>
+            <option value="oak_planks">オークの木材</option>
+        </select>
+
+        <div id="y-slider-container">
+            <label for="current-y">現在のY座標:</label>
+            <input type="range" id="y-slider" min="0" max="10" value="0">
+            <input type="number" id="current-y" min="0" max="10" value="0">
+        </div>
+
+        <button onclick="generateFillCommand()">Fillコマンドを生成</button>
+        <button onclick="resetWorld()">リセット</button>
+    </div>
+
+    <div id="viewport">
+        <div id="world">
+            </div>
+    </div>
+
+    <div id="commands">
+        <h3>生成された /fill または /setblock コマンド:</h3>
+        <pre id="fill-command"></pre>
+        <button onclick="copyToClipboard()">コマンドをコピー</button>
+    </div>
+
+    <script>
+        const GRID_3D_SIZE = 10; // X, Y, Z軸のグリッドサイズ
+        const MIN_Y = 0;
+        const MAX_Y = GRID_3D_SIZE - 1; // 0から9まで
+
+        const BLOCK_SIZE = 30; // 1ブロックあたりのピクセルサイズ
+
+        const viewport = document.getElementById('viewport');
+        const world = document.getElementById('world');
+        const blockTypeSelect = document.getElementById('block-type');
+        const ySlider = document.getElementById('y-slider');
+        const currentYInput = document.getElementById('current-y');
+        const fillCommandOutput = document.getElementById('fill-command');
+
+        // 全ブロックの状態を保存するMapオブジェクト
+        // キーは "x,y,z" の文字列、値はブロックタイプ ('air'を含む)
+        let blocks = new Map();
+        let currentY = 0; // 現在表示・編集しているY座標
+
+        // カメラ回転用の変数
+        let isDragging = false;
+        let prevMouseX = 0;
+        let prevMouseY = 0;
+        let rotateX = -30; // 初期回転
+        let rotateY = 45;   // 初期回転
+
+        // Y座標スライダー/入力の初期設定
+        ySlider.min = MIN_Y;
+        ySlider.max = MAX_Y;
+        currentYInput.min = MIN_Y;
+        currentYInput.max = MAX_Y;
+
+        ySlider.value = currentY;
+        currentYInput.value = currentY;
+
+        // グリッドを初期化し、イベントリスナーを設定
+        function initializeWorld() {
+            world.innerHTML = ''; // 既存のブロックをクリア
+            blocks.clear(); // 全てのブロックデータをクリア
+
+            // ワールドのtransform-originを中央に設定
+            // CSS変数を更新して、ブロックの大きさを指定
+            document.documentElement.style.setProperty('--block-size', `${BLOCK_SIZE}px`);
+
+            // マウスイベントリスナーを設定
+            viewport.addEventListener('mousedown', onMouseDown);
+            viewport.addEventListener('mouseup', onMouseUp);
+            viewport.addEventListener('mousemove', onMouseMove);
+            viewport.addEventListener('mouseleave', onMouseUp); // ビューポート外に出た場合もmouseup扱い
+
+            updateWorldRotation(); // 初期回転を適用
+            updateYDisplay(); // Y座標の表示を更新
+        }
+
+        // 3D空間内のブロックのキーからHTML要素を生成
+        function createBlockElement(x, y, z, type) {
+            const blockContainer = document.createElement('div');
+            blockContainer.classList.add('block-container');
+            blockContainer.dataset.x = x;
+            blockContainer.dataset.y = y;
+            blockContainer.dataset.z = z;
+            blockContainer.dataset.blockType = type;
+
+            // 各面を作成
+            const faces = ['front', 'back', 'top', 'bottom', 'left', 'right'];
+            faces.forEach(faceName => {
+                const face = document.createElement('div');
+                face.classList.add('block-face', faceName);
+                if (type === 'grass_block' && faceName !== 'top') {
+                    face.classList.add('side'); // グラスブロックの側面は特別扱い
+                }
+                blockContainer.appendChild(face);
+            });
+
+            blockContainer.classList.add(type); // ブロックの種類に応じたクラス
+
+            // CSS変数を設定して位置を調整 (中央寄せのためオフセットを考慮)
+            const offsetX = - (GRID_3D_SIZE * BLOCK_SIZE / 2);
+            const offsetY = - (GRID_3D_SIZE * BLOCK_SIZE / 2);
+            const offsetZ = - (GRID_3D_SIZE * BLOCK_SIZE / 2);
+
+            blockContainer.style.setProperty('--x', `${x * BLOCK_SIZE + offsetX}px`);
+            blockContainer.style.setProperty('--y', `${y * BLOCK_SIZE + offsetY}px`);
+            blockContainer.style.setProperty('--z', `${z * BLOCK_SIZE + offsetZ}px`);
+
+            // クリックイベントリスナーをブロックコンテナに設定
+            blockContainer.addEventListener('click', placeBlock);
+
+            return blockContainer;
+        }
+
+        // ブロックを配置/削除する
+        function placeBlock(event) {
+            const blockContainer = event.currentTarget; // クリックされたブロックコンテナ
+            const x = parseInt(blockContainer.dataset.x);
+            const y = parseInt(blockContainer.dataset.y);
+            const z = parseInt(blockContainer.dataset.z);
+            const selectedBlockType = blockTypeSelect.value;
+            const blockKey = `${x},${y},${z}`;
+
+            if (selectedBlockType === 'air') {
+                blocks.delete(blockKey); // 空気の場合はMapから削除
+                blockContainer.remove(); // DOMからも削除
+            } else {
+                // ブロックのタイプを更新 (存在しない場合は新しく作成)
+                if (!blocks.has(blockKey) || blocks.get(blockKey) !== selectedBlockType) {
+                    blocks.set(blockKey, selectedBlockType);
+
+                    // 既存のブロックコンテナを削除し、新しいものを再生成して入れ替える
+                    // または、クラスだけ変更する（ただし面の色分けなどが複雑になる）
+                    // 最も簡単なのは再生成
+                    blockContainer.remove();
+                    const newBlockElement = createBlockElement(x, y, z, selectedBlockType);
+                    world.appendChild(newBlockElement);
+                }
+            }
+            fillCommandOutput.textContent = ''; // コマンド表示をクリア
+        }
+
+        // カメラ回転のためのマウスイベントハンドラ
+        function onMouseDown(e) {
+            isDragging = true;
+            prevMouseX = e.clientX;
+            prevMouseY = e.clientY;
+            viewport.style.cursor = 'grabbing';
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+            viewport.style.cursor = 'grab';
+        }
+
+        function onMouseMove(e) {
+            if (!isDragging) return;
+
+            const deltaX = e.clientX - prevMouseX;
+            const deltaY = e.clientY - prevMouseY;
+
+            rotateY += deltaX * 0.5; // 水平方向の回転
+            rotateX -= deltaY * 0.5; // 垂直方向の回転 (反転)
+
+            // 垂直方向の回転を制限して、上下をひっくり返らないようにする
+            rotateX = Math.max(-90, Math.min(90, rotateX));
+
+            updateWorldRotation();
+
+            prevMouseX = e.clientX;
+            prevMouseY = e.clientY;
+        }
+
+        // ワールドの回転をCSSに適用
+        function updateWorldRotation() {
+            world.style.transform = `translate3d(calc(-50% + ${GRID_3D_SIZE * BLOCK_SIZE / 2}px), calc(-50% + ${GRID_3D_SIZE * BLOCK_SIZE / 2}px), 0) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+            // ↑ transform-originの中心が(0,0,0)なので、ワールドを中央に移動し、そこから回転
+            // ワールドの原点を中心に合わせるために、50%オフセットを追加。
+            // 実際には、CSSで`transform-origin: 50% 50% 50%;`を使いたいが、
+            // block-containerの配置と相対的に動くので、世界全体をオフセットする。
+        }
+
+        // Y座標スライダー/入力変更時のイベントリスナー
+        ySlider.addEventListener('input', (event) => {
+            currentY = parseInt(event.target.value);
+            currentYInput.value = currentY;
+            updateYDisplay();
+        });
+
+        currentYInput.addEventListener('change', (event) => {
+            let val = parseInt(event.target.value);
+            if (isNaN(val) || val < MIN_Y) val = MIN_Y;
+            if (val > MAX_Y) val = MAX_Y;
+            currentY = val;
+            ySlider.value = currentY;
+            currentYInput.value = currentY;
+            updateYDisplay();
+        });
+
+        // 現在のY座標に合わせて、グリッド内の見えないブロック（クリック用）を更新
+        // 3D表示では常に全ブロックを表示するため、この関数はUIのY表示更新のみ
+        function updateYDisplay() {
+            // 特に3D表示では、クリックされた位置から3D座標を逆算する必要がある
+            // これは複雑なので、既存のブロックが存在しないX,Z座標に一時的な「空気ブロック」を置いてクリックできるようにする
+            // 全てのグリッドセル（仮想のX,Z平面）に対して、もしそのY座標にブロックが無ければ、クリックで配置できるようにする
+            
+            // まず既存の「仮想空気ブロック」を全て削除
+            document.querySelectorAll('.virtual-air').forEach(el => el.remove());
+
+            for (let x = 0; x < GRID_3D_SIZE; x++) {
+                for (let z = 0; z < GRID_3D_SIZE; z++) {
+                    const blockKey = `${x},${currentY},${z}`;
+                    if (!blocks.has(blockKey)) {
+                        // ブロックが配置されていない場所に仮想的な「空気ブロック」を配置
+                        // これはクリックイベントを拾うためだけの見えないブロック
+                        const virtualAir = createBlockElement(x, currentY, z, 'air');
+                        virtualAir.classList.add('virtual-air'); // 識別用のクラス
+                        world.appendChild(virtualAir);
+                    }
+                }
+            }
+        }
+
+
+        // /fill コマンドを生成する関数
+        function generateFillCommand() {
+            const commands = [];
+            
+            // 全ての配置済みブロックを処理
+            blocks.forEach((blockType, key) => {
+                const parts = key.split(',');
+                const x = parseInt(parts[0]);
+                const y = parseInt(parts[1]);
+                const z = parseInt(parts[2]);
+
+                // Minecraftの座標系でコマンドを生成
+                // エミュレーターの(0,0,0)をMinecraftの(0,0,0)にマッピング
+                commands.push(`/setblock ${x} ${y} ${z} ${blockType}`);
+            });
+
+            if (commands.length === 0) {
+                fillCommandOutput.textContent = "ブロックが配置されていません。";
+            } else {
+                fillCommandOutput.textContent = commands.join('\n');
+            }
+        }
+
+        // ワールドとブロックデータをリセットする関数
+        function resetWorld() {
+            blocks.clear(); // 全てのブロックデータをクリア
+            currentY = MIN_Y; // Y座標をリセット
+            ySlider.value = currentY;
+            currentYInput.value = currentY;
+            
+            world.innerHTML = ''; // DOMから全てのブロックを削除
+            updateYDisplay(); // 仮想空気ブロックを再生成
+            fillCommandOutput.textContent = '';
+        }
+
+        // クリップボードにコピーする関数
+        function copyToClipboard() {
+            const commandText = fillCommandOutput.textContent;
+            if (commandText) {
+                navigator.clipboard.writeText(commandText)
+                    .then(() => alert('コマンドがクリップボードにコピーされました！'))
+                    .catch(err => console.error('コピーに失敗しました:', err));
+            } else {
+                alert('コピーするコマンドがありません。');
+            }
+        }
+
+        // ページロード時に初期化
+        window.onload = initializeWorld;
+    </script>
+</body>
+</html>
