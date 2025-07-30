@@ -1,19 +1,120 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Web Terminal</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <title>Minecraft Fill 3Dエミュレータ</title>
+  <style>
+    body { margin: 0; background: #222; color: white; font-family: sans-serif; text-align: center; }
+    #three-container { width: 100%; height: 500px; display: block; }
+    input, button {
+      margin: 10px; padding: 10px; font-size: 16px;
+      width: 400px;
+    }
+  </style>
 </head>
 <body>
-  <div class="terminal">
-    <div id="output"></div>
-    <div class="input-line">
-      <span class="prompt">$</span>
-      <input type="text" id="input" autofocus />
-    </div>
-  </div>
-  <script src="terminal.js"></script>
+  <h1>Minecraft Fill 3D エミュレータ</h1>
+  <div id="three-container"></div>
+  <input id="command" placeholder="/fill x1 y1 z1 x2 y2 z2 block" />
+  <button onclick="runFillCommand()">実行</button>
+
+  <!-- Three.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / 500, 0.1, 1000);
+    camera.position.set(15, 15, 15);
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, 500);
+    document.getElementById('three-container').appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.update();
+
+    const blockSize = 1;
+    const gridSize = 10;
+    const blocks = {}; // 3D座標→Mesh の辞書
+
+    const blockColors = {
+      stone: 0x888888,
+      grass: 0x00ff00,
+      water: 0x0000ff,
+      sand:  0xdddd88,
+      wood:  0x8b4513,
+      default: 0xffffff
+    };
+
+    // 座標からキーを作成
+    function getKey(x, y, z) {
+      return `${x},${y},${z}`;
+    }
+
+    // ブロック設置
+    function setBlock(x, y, z, type) {
+      const key = getKey(x, y, z);
+
+      // 既存のブロック削除
+      if (blocks[key]) {
+        scene.remove(blocks[key]);
+      }
+
+      const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+      const color = blockColors[type] || blockColors.default;
+      const material = new THREE.MeshStandardMaterial({ color });
+      const cube = new THREE.Mesh(geometry, material);
+      cube.position.set(x, y, z);
+      scene.add(cube);
+      blocks[key] = cube;
+    }
+
+    // fillコマンドを実行
+    function runFillCommand() {
+      const input = document.getElementById("command").value.trim();
+      const match = input.match(/^\/fill\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w+)$/);
+      if (!match) {
+        alert("コマンド形式: /fill x1 y1 z1 x2 y2 z2 block");
+        return;
+      }
+
+      let [_, x1, y1, z1, x2, y2, z2, block] = match.map((v, i) => i < 7 ? parseInt(v) : v);
+      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+      const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+
+      for (let x = minX; x <= maxX; x++) {
+        for (let y = minY; y <= maxY; y++) {
+          for (let z = minZ; z <= maxZ; z++) {
+            if (x < gridSize && y < gridSize && z < gridSize) {
+              setBlock(x, y, z, block);
+            }
+          }
+        }
+      }
+    }
+
+    // 簡易ライト
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(10, 20, 10);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // グリッドの目印
+    const gridHelper = new THREE.GridHelper(gridSize * 2, gridSize);
+    scene.add(gridHelper);
+
+    // アニメーションループ
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
 </body>
 </html>
